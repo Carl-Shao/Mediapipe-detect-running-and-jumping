@@ -10,7 +10,8 @@ class JumpRopeCounter:
         self.centers = []
         self.highest_point = -1
         self.lowest_point = 2
-        self.threshold = 0.04
+        self.threshold_one = 0.03
+        self.threshold_two = 0.05
 
     def getBodyCenter(self, landmarks):
         left_hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
@@ -36,7 +37,15 @@ class JumpRopeCounter:
         current_up_trend = current_center > self.centers[-1]
         distance = self.highest_point - self.lowest_point
 
-        if (distance > self.threshold and
+        if (distance > self.threshold_two and
+        not current_up_trend and
+        current_center < self.lowest_point + 0.01):
+            self.count += 2
+            self.centers = []
+            self.highest_point = -1
+            self.lowest_point = 2
+
+        elif (distance > self.threshold_one and
         not current_up_trend and
         current_center < self.lowest_point + 0.01):
             self.count += 1
@@ -102,7 +111,7 @@ if __name__ == '__main__':
                     3
                 )
 
-            scale = 0.8
+            scale = 0.6
             frame = cv2.resize(frame, (0, 0), fx=scale, fy=scale)
             cv2.imshow("Jump Rope Counter", frame)
             key = cv2.waitKey(1) & 0xFF
