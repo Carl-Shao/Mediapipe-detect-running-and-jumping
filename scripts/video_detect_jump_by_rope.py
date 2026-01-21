@@ -1,37 +1,53 @@
 import cv2
 import numpy as np
+fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows=True)
 
+# MOG2 algorithm to filter the background
+def MOG2(frame):
+    fgmask = fgbg.apply(frame)
+    fgmask = cv2.threshold(fgmask, 254, 255, cv2.THRESH_BINARY)[1]
+    kernel = np.ones((3, 3), np.uint8)
+    fgmask = cv2.erode(fgmask, kernel, iterations=1)
+    fgmask = cv2.dilate(fgmask, kernel, iterations=1)
+    foreground = cv2.bitwise_or(frame, frame, mask = fgmask)
+    return foreground
+# detect red rope
 def detect_rope(frame):
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    foreground = MOG2(frame)
+    hsv = cv2.cvtColor(foreground, cv2.COLOR_BGR2HSV)
 
     low_red1 = np.array([0, 110, 110])
     high_red1 = np.array([8, 255, 255])
     low_red2 = np.array([175, 120, 120])
-    high_red2 = np.array([210, 255, 255])
+    high_red2 = np.array([180, 255, 255])
     mask1 = cv2.inRange(hsv, low_red1, high_red1)
     mask2 = cv2.inRange(hsv, low_red2, high_red2)
     mask = cv2.bitwise_or(mask1, mask2)
 
-    kernel = np.ones((3, 3), np.uint8)
+    kernel = np.ones((5, 5), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations = 1)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations = 5)
 
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     rope_mask = np.zeros_like(mask)
-    mask = cv2.resize(mask, (0, 0), fx=0.5, fy=0.5)
-    cv2.imshow("mask", mask)
 
+    # detect the detect function output the black and white video
+    #mask = cv2.resize(mask, (0, 0), fx=0.5, fy=0.5)
+    #cv2.imshow("mask", mask)
+
+    # throw different algorithm to judge the rope  the fit cnt will append in the array
+    valid_contours = []
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area > 2000:
+        if area > 3000:
             continue
 
         perimeter = cv2.arcLength(cnt, True)
         if perimeter == 0:
             continue
-        compactness = area / (perimeter ** 2)
-        if compactness < 0.005:
-            continue
+        #compactness = area / (perimeter ** 2)
+        #if compactness < 0.005:
+        #    continue
 
         #x, y, w, h = cv2.boundingRect(cnt)
         #if min(w, h) == 0:
@@ -39,18 +55,24 @@ def detect_rope(frame):
         #ratio = max(w, h) / min(w, h)
         #if ratio < 100:
         #    continue
-        cv2.drawContours(rope_mask, [cnt], -1, 255, -1)
+        valid_contours.append(cnt)
 
+    #if not valid_contours:
+    #    return None, None
 
-        mask = cv2.resize(rope_mask, (0, 0), fx=0.5, fy=0.5)
-        cv2.imshow("mask", mask)
+    # out put the video after filter
+    mask = cv2.resize(rope_mask, (0, 0), fx=0.5, fy=0.5)
+    cv2.imshow("mask", mask)
 
-        point = rope_mask.reshape(-1, 2)
-        mid_x = int(np.mean(point[:, 0]))
-        mid_y = int(np.mean(point[:, 1]))
-        rope_mid_position = (mid_x, mid_y)
-        return rope_mid_position, rope_mask
-    return (None, None), None
+    # calculate the middle point
+    all_points = np.concatenate(valid_contours)
+    M = cv2.moments(all_points)
+    if M["m00"] == 0:
+        return None, None
+    Cx = int(M["m10"] / M["m00"])
+    Cy = int(M["m01"] / M["m00"])
+    cv2.drawContours(rope_mask, valid_contours, -1, 255, -1)
+    return (Cx, Cy), rope_mask
 
 class JumpRopeCounter:
     def __init__(self):
@@ -64,7 +86,10 @@ class JumpRopeCounter:
     def updateCount(self, frame):
         rope_mid_xy, _ = detect_rope(frame)
         current_rope_mid = rope_mid_xy[1]
+
+        # output the middle point from the function detect rope
         print(rope_mid_xy)
+
         self.rope_history.append(current_rope_mid)
         if len(self.rope_history) > 15:
             self.rope_history.pop(0)
@@ -100,9 +125,7 @@ if __name__ == '__main__':
     cap = cv2.VideoCapture(input_video)
     while cap.isOpened():
         ret, frame = cap.read()
-
-        rope_mid, _ = detect_rope(frame)
-        _, rope_mask = detect_rope(frame)
+        rope_mid, rope_mask = detect_rope(frame)
         count = jump_rope.updateCount(frame)
 
         if rope_mid is not None:
